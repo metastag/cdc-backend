@@ -1,5 +1,6 @@
 import re
 from typing import List, Dict, Any
+from model import get_analyzer
 
 
 def match_distortions(text: str) -> List[Dict[str, Any]]:
@@ -114,13 +115,33 @@ def summarize_text(text: str, max_len: int = 240) -> str:
 
 
 def compute_analysis_for_text(text: str) -> Dict[str, Any]:
+    # keep local pattern matching for detailed distortion excerpts
     distortions = match_distortions(text)
     positive_patterns = detect_positive_patterns(text)
-    severity_map = {"low": 10, "medium": 20, "high": 30}
-    penalty = 0.0
-    for d in distortions:
-        sev_val = severity_map.get(d.get('severity', 'low'), 10)
-        conf = float(d.get('confidence', 50)) / 100.0
-        penalty += sev_val * conf
-    overall = max(0, int(round(100 - penalty)))
-    return {"distortions": distortions, "overallScore": overall, "positivePatterns": positive_patterns}
+
+    # Use the ML analyzer to get a complementary analysis (scores, emotions, etc.)
+    try:
+        analyzer = get_analyzer()
+        model_analysis = analyzer.analyze_entry(text)
+        # model provides a normalized distortion score in [0,1]
+        distortion_score = float(model_analysis.get('distortion_score', 0.0))
+        # map to a 0-100 overall score (higher is healthier)
+        overall = max(0, min(100, int(round((1.0 - distortion_score) * 100))))
+        # attach model output for downstream use
+        result = {
+            "distortions": distortions,
+            "overallScore": overall,
+            "positivePatterns": positive_patterns,
+            "model": model_analysis,
+        }
+        return result
+    except Exception:
+        # Fallback: if model fails for any reason, return the rule-based result
+        severity_map = {"low": 10, "medium": 20, "high": 30}
+        penalty = 0.0
+        for d in distortions:
+            sev_val = severity_map.get(d.get('severity', 'low'), 10)
+            conf = float(d.get('confidence', 50)) / 100.0
+            penalty += sev_val * conf
+        overall = max(0, int(round(100 - penalty)))
+        return {"distortions": distortions, "overallScore": overall, "positivePatterns": positive_patterns}
