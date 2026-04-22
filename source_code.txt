@@ -1,0 +1,7 @@
+GitHub links for frontend and backend
+
+frontend:
+https://github.com/metastag/cdc
+
+backend:
+https://github.com/metastag/cdc-backend

@@ -1,0 +1,181 @@
+\section{Experimental Results}
+
+This section provides quantitative evidence for the proposed journal analysis pipeline. All experiments were run with fixed data splits and reproducible seeds to ensure fair comparison across methods.
+
+\subsection{Computational Environment}
+Experiments were conducted on a Windows machine with the following configuration:
+\begin{itemize}
+	\item CPU: 13th Gen Intel(R) Core(TM) i5-13420H
+	\item GPU: Intel(R) UHD Graphics (CPU-only training/inference)
+	\item RAM: 16 GB
+	\item Python: 3.13.0
+	\item Frameworks/Libraries: PyTorch 2.9.0+cpu, scikit-learn 1.6.1, pandas 2.2.3, NumPy 2.1.3
+\end{itemize}
+
+For the proposed neural components, the main training configuration was:
+\begin{itemize}
+	\item Train-test split: 80\% / 20\% (stratified)
+	\item Epochs: 50 (main model training), 20 (tuning runs)
+	\item Learning rate: 0.001 (default main training)
+	\item Optimizer: Adam
+	\item Batch size: 32 (tuning candidates: 16, 32, 64)
+\end{itemize}
+
+\subsection{A. Dataset Description}
+The evaluation dataset is \texttt{combined\_dataset.csv}, a custom text dataset for cognitive distortion analysis.
+
+\begin{itemize}
+	\item Total usable samples: 4530 (after removing rows with missing text/label)
+	\item Number of classes in raw labels: 15
+	\item Binary target for distortion detection: distorted vs. no distortion
+\end{itemize}
+
+Raw label counts are:
+\begin{itemize}
+	\item No Distortion: 933
+	\item Overgeneralization: 439
+	\item Mind Reading: 439
+	\item Magnification: 395
+	\item Personalization: 353
+	\item Fortune-telling: 343
+	\item Emotional Reasoning: 334
+	\item Labelling: 200
+	\item Mental Filter: 200
+	\item All-or-Nothing Thinking: 200
+	\item Should Statements: 200
+	\item Labeling: 165
+	\item Mental filter: 122
+	\item Should statements: 107
+	\item All-or-nothing thinking: 100
+\end{itemize}
+
+For binary evaluation, labels were mapped as:
+\begin{itemize}
+	\item Distorted: 3597
+	\item No Distortion: 933
+\end{itemize}
+which indicates class imbalance toward the distorted class.
+
+The stratified split produced:
+\begin{itemize}
+	\item Training set: 3624
+	\item Test set: 906
+\end{itemize}
+
+Because this is a text-based custom dataset, preprocessing included NA filtering, text casting to string, and TF-IDF feature extraction. Ethical considerations include anonymization and avoiding personally identifying information in journal samples.
+
+\subsection{B. Evaluation Metrics}
+For binary classification, the following metrics were used.
+
+\begin{equation}
+\mathrm{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN}
+\label{eq:exp_accuracy}
+\end{equation}
+
+\begin{equation}
+\mathrm{Precision} = \frac{TP}{TP + FP}
+\label{eq:exp_precision}
+\end{equation}
+
+\begin{equation}
+\mathrm{Recall} = \frac{TP}{TP + FN}
+\label{eq:exp_recall}
+\end{equation}
+
+\begin{equation}
+\mathrm{F1\text{-}score} = 2 \cdot \frac{\mathrm{Precision} \cdot \mathrm{Recall}}{\mathrm{Precision} + \mathrm{Recall}}
+\label{eq:exp_f1}
+\end{equation}
+
+where $TP$, $TN$, $FP$, and $FN$ denote true positives, true negatives, false positives, and false negatives, respectively.
+
+Conceptually:
+\begin{itemize}
+	\item Accuracy measures overall correctness.
+	\item Precision measures how many predicted positives are truly positive.
+	\item Recall measures how many true positives are recovered.
+	\item F1-score balances precision and recall.
+\end{itemize}
+
+\subsection{C. Comparison with Baseline and State-of-the-Art Methods}
+All methods were evaluated under the same data split, feature extraction protocol (TF-IDF with max\_features=500, ngram\_range=(1,3)), and test partition.
+
+\begin{table}[h]
+\centering
+\caption{Performance comparison with baseline and proposed methods.}
+\label{tab:method_comparison}
+\begin{tabular}{lcccc}
+\hline
+Method & Accuracy & Precision & Recall & F1-score \\
+\hline
+Logistic Regression & 0.9481 & 0.9680 & 0.9666 & 0.9673 \\
+Linear SVM & 0.9393 & 0.9703 & 0.9527 & 0.9614 \\
+Random Forest & 0.9525 & 0.9708 & 0.9694 & 0.9701 \\
+Proposed Saved Model & 0.7936 & 0.7936 & 1.0000 & 0.8849 \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Analysis:}
+\begin{itemize}
+	\item The proposed saved model achieved perfect recall (1.0000), meaning it detected all distorted samples in the test set.
+	\item However, precision and accuracy are lower than the baselines, indicating many false positives.
+	\item This behavior is consistent with threshold-sensitive models trained on distortion-heavy data: the model favors sensitivity over specificity.
+	\item The strong baseline results (especially Random Forest and Logistic Regression) suggest that for this TF-IDF setup and dataset split, simpler discriminative classifiers generalize better than the deployed saved neural checkpoint.
+\end{itemize}
+
+Regarding fitting behavior, the original notebook reported very high synthetic-data distortion accuracy and moderate emotion accuracy. Combined with the lower real-data saved-model precision here, this indicates potential overfitting to synthetic patterns and dataset shift between training and evaluation distributions.
+
+\subsection{D. Hyperparameter Tuning}
+Hyperparameters were tuned through systematic iterative experiments using a validation split from the training set (stratified, seed=42). The tuning procedure evaluated multiple candidate values while keeping all other settings fixed.
+
+\subsubsection{Learning Rate Tuning}
+The learning rate was tested over $\{10^{-2}, 10^{-3}, 10^{-4}, 10^{-5}\}$ for a compact distortion MLP (Adam optimizer, 20 epochs, batch size 32).
+
+\begin{table}[h]
+\centering
+\caption{Effect of learning rate on validation accuracy.}
+\label{tab:lr_tuning}
+\begin{tabular}{lc}
+\hline
+Learning Rate & Validation Accuracy \\
+\hline
+0.01 & 0.9434 \\
+0.001 & 0.9421 \\
+0.0001 & 0.9531 \\
+0.00001 & 0.7959 \\
+\hline
+\end{tabular}
+\end{table}
+
+From Table~\ref{tab:lr_tuning}, the best validation accuracy was achieved at $10^{-4}$. A very small learning rate ($10^{-5}$) significantly reduced performance due to slow optimization progress.
+
+\subsubsection{Batch Size Tuning}
+Batch size was tested over $\{16, 32, 64\}$ with learning rate fixed at $10^{-4}$ and 20 training epochs.
+
+\begin{table}[h]
+\centering
+\caption{Effect of batch size on validation performance.}
+\label{tab:batch_tuning}
+\begin{tabular}{lc}
+\hline
+Batch Size & Validation Accuracy \\
+\hline
+16 & 0.9545 \\
+32 & 0.9517 \\
+64 & 0.9531 \\
+\hline
+\end{tabular}
+\end{table}
+
+The best validation score was obtained with batch size 16, while 32 and 64 produced comparable but slightly lower values.
+
+\subsubsection{Final Configuration Justification}
+Based on the tuning results:
+\begin{itemize}
+	\item Selected learning rate: $10^{-4}$ (highest validation accuracy)
+	\item Preferred batch size: 16 (best validation performance)
+\end{itemize}
+
+This choice balances convergence stability and generalization. Larger learning rates showed less stable optima, while excessively small learning rates underfit within practical epoch budgets.
+

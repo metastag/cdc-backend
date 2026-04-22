@@ -1,0 +1,114 @@
+API Summary (for frontend integration)
+
+POST /api/analyze
+Purpose: Run immediate analysis on a provided text and return results synchronously.
+Method: POST
+Headers:
+Content-Type: application/json
+Request body:
+JSON: { "text": "<journal entry text>" }
+text must be a non-empty string.
+Success response:
+Status: 200 OK
+JSON body (object) with keys:
+distortions: array of rule-based distortion objects (type, severity, confidence, excerpt, explanation, reframe)
+overallScore: integer 0-100 (higher is healthier; mapped from model distortion score when model available)
+positivePatterns: array of strings
+model: (optional) object with ML analyzer output (present when model loaded). Contains:
+text: original text
+is_distorted: bool
+distortion_score: float (0.0–1.0)
+distortions_detected: dict (model-detected types → counts/examples)
+emotion_analysis: object:
+emotions: dict label→score (probabilities)
+primary_emotion: string
+primary_emotion_score: float
+vader_sentiment: {pos, neu, neg, compound}
+textblob_sentiment: {polarity, subjectivity}
+overall_sentiment: "positive"|"neutral"|"negative"
+health_assessment: { concern_level, concerns (array), recommendation }
+Error responses:
+400 Bad Request if body missing or not JSON or missing 'text' string.
+500 Internal Server Error if unexpected error (rare; model errors are caught and a fallback result is returned).
+Example request (PowerShell):
+$body = @{ text = "I made a mistake and now I'm sure I'm a failure." } | ConvertTo-Json
+Invoke-RestMethod -Uri 'http://127.0.0.1:5000/api/analyze' -Method Post -ContentType 'application/json' -Body $body
+Example minimal success response (abridged):
+{
+"distortions":[{"type":"All-or-Nothing Thinking","severity":"high","confidence":90,"excerpt":"I always","explanation":"...","reframe":"..."}],
+"overallScore":12,
+"positivePatterns":[],
+"model":{
+"text":"I made a mistake...",
+"is_distorted":true,
+"distortion_score":0.88,
+"distortions_detected":{...},
+"emotion_analysis":{"emotions":{"anger":0.6,"sadness":0.3},"primary_emotion":"anger","vader_sentiment":{...},"overall_sentiment":"negative"},
+"health_assessment":{"concern_level":"high","concerns":["..."],"recommendation":"..."}
+}
+}
+POST /api/entries
+Purpose: Create a new journal entry (persists entry immediately) and optionally kick off background analysis.
+Method: POST
+Headers:
+Content-Type: application/json
+Request body:
+JSON: { "text": "<journal text>", "mood": "<optional>", "meta": { ... } }
+Only text is required and must be a string.
+Success response:
+Status: 201 Created
+JSON body:
+id: string (entry id)
+text: string (stored text)
+createdAt: ISO timestamp (UTC)
+summary: optional string (short first-sentence summary)
+Behavior:
+Immediately stores entry via storage.create_entry_record.
+Starts a background Thread to compute analysis and call storage.set_entry_analysis(entry_id, analysis) — analysis runs asynchronously; this endpoint returns before analysis finishes.
+Error responses:
+400 Bad Request if invalid JSON or missing/invalid text.
+Example request (PowerShell):
+$body = @{ text = "Today felt awful..." } | ConvertTo-Json
+Invoke-RestMethod -Uri 'http://127.0.0.1:5000/api/entries' -Method Post -ContentType 'application/json' -Body $body
+Example success response:
+{ "id":"abc123", "text":"Today felt awful...", "createdAt":"2025-11-10T12:34:56Z", "summary":"Today felt awful." }
+GET /api/entries
+Purpose: List stored entries (lightweight list view).
+Method: GET
+Query: none
+Success response:
+Status: 200 OK
+JSON body: array of item objects, sorted by createdAt descending. Each item contains:
+id: string
+text: string (full text — trimmed if needed)
+createdAt: ISO timestamp
+optional: score (if present in storage)
+optional: summary (if present)
+Example response:
+[ { "id":"abc123","text":"...","createdAt":"2025-11-10T12:34:56Z","summary":"..." }, ... ]
+GET /api/analysis/<entry_id>
+Purpose: Retrieve analysis for a previously created entry (if analysis not yet ready, trigger background analysis and return pending).
+Method: GET
+Path params:
+entry_id: string id from POST /api/entries
+Success responses:
+200 OK with JSON body: the analysis object that was stored earlier by the background job (same shape as returned by compute_analysis_for_text): it will include distortions, overallScore, positivePatterns, and model when model available.
+202 Accepted with JSON body { "status": "pending" } if no analysis is present yet; a background thread is kicked to start analysis.
+Error response:
+404 Not Found if entry id does not exist.
+Example:
+GET /api/analysis/abc123 → either full analysis (200) or { "status":"pending" } (202)
+General notes and tips for frontend Copilot
+
+Content-Type must be application/json for POST endpoints.
+The model field may not be present if the ML analyzer failed or model not loaded; code defensively.
+First-ever call that requires the ML model may be slow (model download and load). Consider:
+Calling a warm-up endpoint (or get_analyzer() at backend startup) to download and cache the model before users hit the service.
+For lightweight UI needs, prefer reading model['emotion_analysis']['primary_emotion'] and model['emotion_analysis']['overall_sentiment'] when present.
+The rule-based distortions include human-friendly explanation and reframe text useful for display.
+If you need a smaller payload for the UI, use /api/analyze and have the frontend read specific keys and discard the rest.
+If you want, I can:
+
+Produce a single-file OpenAPI (Swagger) spec for these endpoints.
+Add a lightweight endpoint that returns only { primary_emotion, overall_sentiment, distortion_score } for fast UI refreshes.
+Which would you like next?

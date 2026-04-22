@@ -135,7 +135,8 @@ def compute_analysis_for_text(text: str) -> Dict[str, Any]:
             "model": model_analysis,
         }
         return result
-    except Exception:
+    except Exception as e:
+        print(f"Warning: ML model analysis failed: {e}")
         # Fallback: if model fails for any reason, return the rule-based result
         severity_map = {"low": 10, "medium": 20, "high": 30}
         penalty = 0.0
